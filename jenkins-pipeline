@@ -1,0 +1,124 @@
+pipeline {
+    agent any
+    
+    environment{
+        K6_HOME="/sw/k6"
+        GIT_URL="https://gitlab.joins.net/kubernetes-admin/k6-loadtest-scripts.git"
+        SCRITPS_FILE="k6-loadtest-scripts.js" // 사용할 테스트 스크립트 파일명
+  
+        //K6_OPTIONS="-e RAMPUP=10s -e DURATION=1m -e TARGET=5" // k6 실행 옵션
+        // K6_OPTIONS="-e RAMPUP=10s -e DURATION=300s -e TARGET=30" // k6 실행 옵션
+        K6_OPTIONS="-e RAMPUP=60s -e DURATION=60m -e TARGET=30" // k6 실행 옵션
+        
+        EMAIL_RECIPIENTS="jang.taeyoung@joins.com" // 성능테스트 결과 이메일 수신자
+        //INFLUXDB_DATABASE="http://10.60.5.149:8086/mega_api"
+        //GRAFANA="https://k6-grafana-mega.joins.net/d/XKhgaUpik1/mega-api-dashboard?orgId=1&refresh=5s"
+    }
+    
+    stages {
+        stage('remove old files') {
+            steps {
+                echo "remove old files"
+                sh 'pwd'
+                sh 'rm -rf ./*'
+                sh 'ls -al'
+            }
+        }
+        stage('checkout config file (js)') {
+            steps {
+                echo "test config file git download"
+                git branch : 'main',
+                credentialsId : 'joins_gitlab',
+                url : "${env.GIT_URL}"
+                
+                // checkout([
+                //     $class: 'GitSCM',
+                //     branches: [[name: '*/main']],
+                //     credentialsId: 'joins_gitlab',
+                //     userRemoteConfigs: [[url: 'https://gitlab.joins.net/kubernetes-admin/k6-loadtest-scripts.git']]
+                // ])
+            }
+        }
+        stage('Performance Testing') {
+            steps {
+                echo "Test sh command"
+                
+                echo "Running k6"
+                sh "${env.K6_HOME}/k6 run ${env.K6_OPTIONS} ${env.SCRITPS_FILE}"
+                //sh "K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_HOST=k8s-jenkins.joins.net K6_WEB_DASHBOARD_EXPORT=loadtest-report.html K6_WEB_DASHBOARD_PERIOD=1s ${env.K6_HOME}/k6 run ${env.K6_OPTIONS} ${env.SCRITPS_FILE}"
+                //sh "${env.K6_HOME}/k6 run ${env.K6_OPTIONS} --out influxdb=${env.INFLUXDB_DATABASE} ${env.SCRITPS_FILE}"
+            }
+        }
+//         stage('Send Email') {
+//             steps {
+//                 emailext(
+//                   subject: "성능테스트 결과서 : ${env.JOB_NAME} [${env.BUILD_NUMBER}]",
+//                   body: 
+// """성능 테스트가 완료되었습니다.
+
+// Jenkins 로그 마지막 부분에서 테스트 결과 수치를 확인하세요.
+//   - 로그 : ${env.BUILD_URL}console
+//   - 성능테스트 통과 조건 : 목표 수치 5m 유지, p(95)응답속도 1s 이하, 에러율 0.01% 이하
+  
+//     ✓ http_req_duration..............: p(95)=수치확인
+//     ✓ http_req_failed................: 수치확인
+
+// 상세 결과는 Grafana 대시보드에서 성능테스트 결과 수치를 확인하세요.
+// (호스트파일 등록 필요)
+// ${env.GRAFANA}
+
+
+// 성능테스트시 모니터링이 필요한 경우 인프라기술팀에 협조를 요청하세요.
+//   - OS : Zabbix (or Scouter, Jeniffer)
+//   - WEB : Zabbox
+//   - 어플리케이션: APM (Scouter, Jeniffer)
+//   - DB : DBA
+//   - K8s, Container : Prometheus, Grafana
+// """,
+
+//                   attachmentsPattern: "load-test-report.html",
+//                   attachLog: true,
+//                   from: "jenkins@joins.com",
+//                   to: "${env.EMAIL_RECIPIENTS}"
+//                 )
+//             }
+//         }
+        
+    }
+    
+    
+    post {
+        
+        
+        failure {
+            mail (
+               subject: "성능테스트 실패 : ${env.JOB_NAME} [${env.BUILD_NUMBER}]",
+               body: 
+"""성능 테스트 실패 ! 
+
+jenkins 에서 테스트 실패를 확인하세요.
+
+Jenkins 로그 마지막 부분에서 테스트 결과 수치를 확인하세요.
+  - 로그 : ${env.BUILD_URL}console
+  - 성능테스트 통과 조건 : 테스트 조건에서 아래 만족시
+      - 성능 목표 임계치 : 95% 응답 1.5초 이하, 99% 응답 2초 이하
+      - 성능 목표 임계치 : 에러율 1% 이하
+      - 성능 목표 임계치 : 성공률 99% 이상
+  
+
+성능테스트시 모니터링이 필요한 경우 인프라기술팀에 협조를 요청하세요.
+  - OS : Zabbix (or Scouter, Jeniffer)
+  - WEB : Zabbox
+  - 어플리케이션: APM (Scouter, Jeniffer)
+  - DB : DBA
+  - K8s, Container : Prometheus, Grafana
+"""
+,
+
+               from: "jenkins@joins.com",
+               to: "${env.EMAIL_RECIPIENTS}"
+            )
+        }
+    }
+    
+}
